@@ -22,7 +22,7 @@ from absl import app
 from absl import flags
 import numpy as np
 import scipy.misc
-import scipy.ndimage
+import imageio
 import tensorflow as tf
 
 from smurf.data_conversion_scripts import conversion_utils
@@ -34,7 +34,7 @@ FLAGS = flags.FLAGS
 flags.DEFINE_string('data_dir', '', 'Dataset folder.')
 flags.DEFINE_string('segment_data_dir', '', 'Dataset folder for segments.')
 flags.DEFINE_string('output_dir', '', 'Location to export to.')
-flags.DEFINE_integer('shard', None, 'Which shard this is. Pass None to write '
+flags.DEFINE_integer('shards', None, 'Which shard this is. Pass None to write '
                      'all shards.')
 flags.DEFINE_integer('num_shards', 100, 'How many total shards there are.')
 
@@ -158,8 +158,8 @@ def write_records(data_list, output_folder, shard):
     for i, (images, flow, occlusion, invalids, segments,
             segments_invalid) in enumerate(data_list):
 
-      image1_data = scipy.ndimage.imread(images[0])
-      image2_data = scipy.ndimage.imread(images[1])
+      image1_data = imageio.imread(images[0])
+      image2_data = imageio.imread(images[1])
       if flow is not None:
         assert occlusion is not None
         assert segments is not None
@@ -168,19 +168,19 @@ def write_records(data_list, output_folder, shard):
         flow_data = conversion_utils.read_flow(flow)
         # Make binary
         occlusion_data = np.expand_dims(
-            scipy.ndimage.imread(occlusion) // 255, axis=-1)
+            imageio.imread(occlusion) // 255, axis=-1)
         invalid1_data = np.expand_dims(
-            scipy.ndimage.imread(invalids[0]) // 255, axis=-1)
+            imageio.imread(invalids[0]) // 255, axis=-1)
         invalid2_data = np.expand_dims(
-            scipy.ndimage.imread(invalids[1]) // 255, axis=-1)
+            imageio.imread(invalids[1]) // 255, axis=-1)
         segment1_data = np.expand_dims(
-            scipy.ndimage.imread(segments[0]), axis=-1)
+            imageio.imread(segments[0]), axis=-1)
         segment2_data = np.expand_dims(
-            scipy.ndimage.imread(segments[1]), axis=-1)
+            imageio.imread(segments[1]), axis=-1)
         segment_invalid1_data = np.expand_dims(
-            scipy.ndimage.imread(segments_invalid[0]), axis=-1)
+            imageio.imread(segments_invalid[0]), axis=-1)
         segment_invalid2_data = np.expand_dims(
-            scipy.ndimage.imread(segments_invalid[1]), axis=-1)
+            imageio.imread(segments_invalid[1]), axis=-1)
       else:  # Test has no flow data, spoof flow data.
         flow_data = np.zeros((image1_data.shape[0], image1_data.shape[1], 2),
                              np.float32)

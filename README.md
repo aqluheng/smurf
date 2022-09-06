@@ -1,3 +1,15 @@
+### 验证chairs预训练模型在sintel_final上的效果
+```
+python3 -m smurf.smurf_main --eval_on="sintel-final:./datasets/training/final" --global_gpu_batch_size=1 --height=384 --width=512 --plot_dir="visual" --checkpoint_dir='checkpoints/chairs-smurf/' 
+```
+
+
+### 验证chairs预训练模型在sintel_final上的效果
+```
+python3 -m smurf.smurf_main --train_on="sintel-final:./datasets/test/final" --global_gpu_batch_size=1 --height=384 --width=512 --plot_dir="visual" --checkpoint_dir='checkpoints/chairs-smurf/' 
+```
+
+
 # This package contains SMURF, a library for research on unsupervised learning of optical flow.
 
 This code accompanies the paper **SMURF: Self-Teaching Multi-Frame Unsupervised RAFT with Full-Image Warping**. We hope that the code enables future research in unsupervised optical flow and beyond. If you find it useful in your own research, please give credit by citing our paper.

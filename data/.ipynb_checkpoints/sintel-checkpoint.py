@@ -34,8 +34,8 @@ from smurf.data.data_utils import list_eval_keys
 from smurf.data_conversion_scripts import conversion_utils
 
 
-def make_dataset(path, # /dataset/MPI-Sintel
-                 mode, # eval-occlusion
+def make_dataset(path,
+                 mode,
                  seq_len=2,
                  shuffle_buffer_size=0,
                  shuffle_files=None,
@@ -71,6 +71,17 @@ def make_dataset(path, # /dataset/MPI-Sintel
     (see parse functions above). The dataset still requires batching
     and prefetching before using it to make an iterator.
   """
+  print(path,
+     mode,
+     seq_len,
+     shuffle_buffer_size,
+     shuffle_files,
+     height,
+     width,
+     resize_gt_flow,
+     include_segments,
+     repeat,
+     seed)
     
   assert seq_len == 2
   if repeat is None:
