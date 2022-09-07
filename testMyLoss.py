@@ -1015,6 +1015,30 @@ def compute_loss(inputs):
   losses = {key + '-loss': losses[key] for key in losses}
   return losses
 
+
+
+def loss_and_grad(inputs):
+  """Apply the model on the data in batch and compute the loss.
+
+  Args:
+    inputs: a dictionary of input tf.Tensors
+    weights: dictionary with float entries per loss.
+    occ_active: a dictionary describing how occlusions should be handled
+
+  Returns:
+    A tuple consisting of a tf.scalar that represents the total loss for the
+    current batch, a list of gradients, and a list of the respective
+    variables.
+  """
+  with tf.GradientTape() as tape:
+    losses = compute_loss(inputs)
+
+  variables = (inputs.flows)
+
+
+  grads = tape.gradient(losses['total-loss'], variables)
+  return losses, grads, variables
+
 import torch
 inputs = torch.load("inputs.pth")
 compute_loss(inputs)
