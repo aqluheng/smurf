@@ -1033,7 +1033,7 @@ def loss_and_grad(inputs):
   with tf.GradientTape() as tape:
     losses = compute_loss(inputs)
 
-  variables = (inputs.flows)
+  variables = (inputs["flows"])
 
 
   grads = tape.gradient(losses['total-loss'], variables)
@@ -1041,4 +1041,4 @@ def loss_and_grad(inputs):
 
 import torch
 inputs = torch.load("inputs.pth")
-compute_loss(inputs)
+losses, grad, variables = loss_and_grad(inputs)
