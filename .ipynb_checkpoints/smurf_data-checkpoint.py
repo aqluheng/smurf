@@ -265,7 +265,6 @@ def make_eval_function(eval_on, height, width, progress_bar, plot_dir,
   # Make an eval function that aggregates all evaluations.
   def eval_function(smurf):
     result = dict()
-    # 这里有infer函数
     for eval_fn, ds in eval_functions_and_datasets:
       results = eval_fn(
           smurf.batch_infer, ds, height,

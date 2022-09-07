@@ -176,6 +176,7 @@ def parse_data(proto,
   return output
 
 
+# +
 def evaluate(
     inference_fn,
     dataset,
@@ -217,7 +218,8 @@ def evaluate(
 
   eval_start_in_s = time.time()
 
-  it = tf.compat.v1.data.make_one_shot_iterator(dataset)
+#   it = tf.compat.v1.data.make_one_shot_iterator(dataset)
+  it = dataset.batch(4)
   epe_occ = []  # End point errors.
   errors_occ = []
   inference_times = []
@@ -227,7 +229,8 @@ def evaluate(
   plot_count = 0
   eval_count = -1
   for test_batch in it:
-
+#     import pdb
+#     pdb.set_trace()
     image_batch = test_batch['images']
     flow_gt = test_batch['flow']
     flow_valid = test_batch['flow_valid']
@@ -248,8 +251,7 @@ def evaluate(
       sys.stdout.flush()
 
     f = lambda: inference_fn(
-        image_batch[0],
-        image_batch[1],
+        image_batch,
         input_height=height,
         input_width=width,
         infer_occlusion=True,
@@ -340,6 +342,8 @@ def evaluate(
     return {prefix + '-' + k: v for k, v in results.items()}
   return results
 
+
+# -
 
 def compute_f_metrics(mask_prediction, mask_gt, num_thresholds=40):
   """Return a dictionary of the true positives, etc. for two binary masks."""
