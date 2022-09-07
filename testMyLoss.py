@@ -240,6 +240,168 @@ def census_loss(image_a_bhw3,
   return loss_mean
 
 
+def robust_l1(x):
+  """Robust L1 metric."""
+  return (x**2 + 0.001**2)**0.5
+
+def first_order_smoothness_loss(
+    image, flow,
+    edge_weighting_fn):
+  """Computes a first-order smoothness loss.
+
+  Args:
+    image: Image used for the edge-aware weighting [batch, height, width, 2].
+    flow: Flow field for with to compute the smoothness loss [batch, height,
+      width, 2].
+    edge_weighting_fn: Function used for the edge-aware weighting.
+
+  Returns:
+    Average first-order smoothness loss.
+  """
+  img_gx, img_gy = image_grads(image)
+  weights_x = edge_weighting_fn(img_gx)
+  weights_y = edge_weighting_fn(img_gy)
+
+  # Compute second derivatives of the predicted smoothness.
+  flow_gx, flow_gy = image_grads(flow)
+
+  # Compute weighted smoothness
+  return ((tf.reduce_mean(input_tensor=weights_x * robust_l1(flow_gx)) +
+           tf.reduce_mean(input_tensor=weights_y * robust_l1(flow_gy))) / 2.)
+
+
+def second_order_smoothness_loss(
+    image, flow,
+    edge_weighting_fn):
+  """Computes a second-order smoothness loss.
+
+  Computes a second-order smoothness loss (only considering the non-mixed
+  partial derivatives).
+
+  Args:
+    image: Image used for the edge-aware weighting [batch, height, width, 2].
+    flow: Flow field for with to compute the smoothness loss [batch, height,
+      width, 2].
+    edge_weighting_fn: Function used for the edge-aware weighting.
+
+  Returns:
+    Average second-order smoothness loss.
+  """
+  img_gx, img_gy = image_grads(image, stride=2)
+  weights_xx = edge_weighting_fn(img_gx)
+  weights_yy = edge_weighting_fn(img_gy)
+
+  # Compute second derivatives of the predicted smoothness.
+  flow_gx, flow_gy = image_grads(flow)
+  flow_gxx, _ = image_grads(flow_gx)
+  _, flow_gyy = image_grads(flow_gy)
+
+  # Compute weighted smoothness
+  return ((tf.reduce_mean(input_tensor=weights_xx * robust_l1(flow_gxx)) +
+           tf.reduce_mean(input_tensor=weights_yy * robust_l1(flow_gyy))) / 2.)
+
+
+def image_grads(image_batch, stride=1):
+  image_batch_gh = image_batch[:, stride:] - image_batch[:, :-stride]
+  image_batch_gw = image_batch[:, :, stride:] - image_batch[:, :, :-stride]
+  return image_batch_gh, image_batch_gw
+
+
+def self_supervision_loss(teacher_flow, student_flow,
+                          teacher_backward_flow,
+                          student_backward_flow, selfsup_mask,
+                          selfsup_transform_fn,
+                          fb_sigma_student,
+                          fb_sigma_teacher):
+  """Computes self-supervision based on a given teacher and student flow.
+
+  Args:
+    teacher_flow: Flow field computed by the teacher model [batch, height,
+      width, 2].
+    student_flow: Flow field computed by the student model [batch, height,
+      width, 2].
+    teacher_backward_flow: Backward flow field computed by the teacher model
+      [batch, height, width, 2].
+    student_backward_flow: Backward flow field computed by the student model
+      [batch, height, width, 2].
+    selfsup_mask: Indicates what type of masking to use for the self-supervision
+      can be either gaussian or ddflow.
+    selfsup_transform_fn: Transform function used for the self-supervision. This
+      function allows to transform images and flow fields accordingly.
+    fb_sigma_student: Sigma used for the gaussian self-supervision masking.
+    fb_sigma_teacher: Sigma used for the gaussian self-supervision masking.
+
+  Returns:
+    Average self-supervision loss.
+  """
+  if selfsup_transform_fn is None:
+    raise ValueError('Self-supervision transform should not be none if '
+                     'self-supervision loss is used.')
+
+  h = tf.cast(tf.shape(input=teacher_flow)[-3], tf.float32)
+  w = tf.cast(tf.shape(input=teacher_flow)[-2], tf.float32)
+
+  # Resampled backward flows at forward flow locations.
+  student_warp = flow_to_warp(student_flow)
+  student_backward_flow_resampled = resample(student_backward_flow,
+                                             student_warp)
+  teacher_warp = flow_to_warp(teacher_flow)
+  teacher_backward_flow_resampled = resample(teacher_backward_flow,
+                                             teacher_warp)
+
+  # Compute valid warp masks, i.e. a mask indicating if a pixel was warped
+  # outside the image frame.
+  student_valid_warp_masks = mask_invalid(student_warp)
+  teacher_valid_warp_masks = mask_invalid(teacher_warp)
+
+  student_fb_sq_diff = tf.reduce_sum(
+      (student_flow + student_backward_flow_resampled)**2,
+      axis=-1,
+      keepdims=True)
+  teacher_fb_sq_diff = tf.reduce_sum(
+      (teacher_flow + teacher_backward_flow_resampled)**2,
+      axis=-1,
+      keepdims=True)
+  if selfsup_mask == 'gaussian':
+    student_fb_consistency = tf.exp(-student_fb_sq_diff / (fb_sigma_student**2 *
+                                                           (h**2 + w**2)))
+    teacher_fb_consistency = tf.exp(-teacher_fb_sq_diff / (fb_sigma_teacher**2 *
+                                                           (h**2 + w**2)))
+  elif selfsup_mask == 'ddflow':
+    student_fb_sum_sq = tf.reduce_sum(
+        student_flow**2 + student_backward_flow_resampled**2,
+        axis=-1,
+        keepdims=True)
+    teacher_fb_sum_sq = tf.reduce_sum(
+        teacher_flow**2 + teacher_backward_flow_resampled**2,
+        axis=-1,
+        keepdims=True)
+
+    threshold_student = 0.01 * student_fb_sum_sq + 0.5
+    threshold_teacher = 0.01 * teacher_fb_sum_sq + 0.5
+    student_fb_consistency = tf.cast(student_fb_sq_diff < threshold_student,
+                                     tf.float32)
+    teacher_fb_consistency = tf.cast(teacher_fb_sq_diff < threshold_teacher,
+                                     tf.float32)
+  elif selfsup_mask != 'none':
+    raise ValueError('Unknown selfsup_mask', selfsup_mask)
+
+  if selfsup_mask == 'none':
+    student_mask = tf.ones_like(student_valid_warp_masks)
+    teacher_mask = tf.ones_like(teacher_valid_warp_masks)
+  else:
+    student_mask = 1. - (student_fb_consistency * student_valid_warp_masks)
+    teacher_mask = teacher_fb_consistency * teacher_valid_warp_masks
+  teacher_mask = selfsup_transform_fn(teacher_mask, is_flow=False)
+  teacher_flow = selfsup_transform_fn(teacher_flow, is_flow=True)
+
+  error = robust_l1(tf.stop_gradient(teacher_flow) - student_flow)
+  mask = tf.stop_gradient(teacher_mask * student_mask)
+
+  return tf.reduce_mean(input_tensor=mask * error)
+
+
+
 def unsupervised_loss(images,
                       flows,
                       weights,
@@ -807,7 +969,7 @@ def build_selfsup_transformations(num_flow_levels=3,
 # (0, 1, 'transformed-student'), (1, 0, 'transformed-student'),
 # (0, 1, 'original-teacher'), (1, 0, 'original-teacher')]
 # flow[0][(0, 1, 'augmented-student')] = [tf.Tensor: shape=(1, 384, 512, 2)]
-def compute_loss(images, inputs):
+def compute_loss(inputs):
   """Apply models and compute losses for a batch of image sequences."""
   # Check if chosen train_mode is valid.
   images = inputs.get('images')
