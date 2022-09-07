@@ -175,6 +175,71 @@ def resample(source, coords):
     raise NotImplementedError()
 
 
+def zero_mask_border(mask_bhw3, patch_size):
+  """Used to ignore border effects from census_transform."""
+  mask_padding = patch_size // 2
+  mask = mask_bhw3[:, mask_padding:-mask_padding, mask_padding:-mask_padding, :]
+  return tf.pad(
+      tensor=mask,
+      paddings=[[0, 0], [mask_padding, mask_padding],
+                [mask_padding, mask_padding], [0, 0]])
+
+
+def census_transform(image, patch_size):  # pylint:disable=missing-function-docstring
+  intensities = tf.image.rgb_to_grayscale(image) * 255
+  kernel = tf.reshape(
+      tf.eye(patch_size * patch_size),
+      (patch_size, patch_size, 1, patch_size * patch_size))
+  neighbors = tf.nn.conv2d(
+      input=intensities, filters=kernel, strides=[1, 1, 1, 1], padding='SAME')
+  diff = neighbors - intensities
+  # Magic numbers taken from DDFlow
+  diff_norm = diff / tf.sqrt(.81 + tf.square(diff))
+  return diff_norm
+
+
+# pylint:disable=g-doc-args
+# pylint:disable=g-doc-return-or-yield
+def soft_hamming(a_bhwk, b_bhwk, thresh=.1):
+  """A soft hamming distance between tensor a_bhwk and tensor b_bhwk.
+
+  Returns a tensor with approx. 1 in (h, w) locations that are significantly
+  more different than thresh and approx. 0 if significantly less
+  different than thresh.
+  """
+  sq_dist_bhwk = tf.square(a_bhwk - b_bhwk)
+  soft_thresh_dist_bhwk = sq_dist_bhwk / (thresh + sq_dist_bhwk)
+  return tf.reduce_sum(
+      input_tensor=soft_thresh_dist_bhwk, axis=3, keepdims=True)
+
+
+def abs_robust_loss(diff, eps=0.01, q=0.4):
+  """The so-called robust loss used by DDFlow."""
+  return tf.pow((tf.abs(diff) + eps), q)
+
+
+def census_loss(image_a_bhw3,
+                image_b_bhw3,
+                mask_bhw3,
+                patch_size=7,
+                distance_metric_fn=abs_robust_loss):
+  """Compare the similarity of the census transform of two images."""
+  census_image_a_bhwk = census_transform(image_a_bhw3, patch_size)
+  census_image_b_bhwk = census_transform(image_b_bhw3, patch_size)
+
+  hamming_bhw1 = soft_hamming(census_image_a_bhwk,
+                              census_image_b_bhwk)
+
+  # set borders of mask to zero to ignore edge effects
+  padded_mask_bhw3 = zero_mask_border(mask_bhw3, patch_size)
+  diff = distance_metric_fn(hamming_bhw1)
+  diff *= padded_mask_bhw3
+  diff_sum = tf.reduce_sum(input_tensor=diff)
+  loss_mean = diff_sum / (tf.reduce_sum(
+      input_tensor=tf.stop_gradient(padded_mask_bhw3) + 1e-6))
+  return loss_mean
+
+
 def unsupervised_loss(images,
                       flows,
                       weights,
